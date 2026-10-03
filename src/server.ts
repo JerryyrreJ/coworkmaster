@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Store } from "./store.js";
 import { ImapSmtpMailboxAdapter, MockMailboxAdapter, type MailboxConfig, type MailboxAdapter } from "./services/mailbox.js";
+import { RustMailboxAdapter } from "./services/rust-mailbox.js";
 import { scanMailbox } from "./services/agent.js";
 import { DemoStore } from "./services/demo.js";
 import { MailboxSettings } from "./services/mailbox-settings.js";
@@ -21,7 +22,10 @@ await app.register(fastifyStatic, {
 const store = new Store();
 const mailboxSettings = new MailboxSettings();
 let mailboxConfig = mailboxSettings.load();
-let mailbox: MailboxAdapter = mailboxConfig ? new ImapSmtpMailboxAdapter(mailboxConfig) : new MockMailboxAdapter();
+const useRustMailbox = process.env.RUST_MAILBOX_ENABLED === "true";
+const createMailbox = (config: MailboxConfig): MailboxAdapter =>
+  useRustMailbox ? new RustMailboxAdapter(config) : new ImapSmtpMailboxAdapter(config);
+let mailbox: MailboxAdapter = mailboxConfig ? createMailbox(mailboxConfig) : new MockMailboxAdapter();
 let lastTest: { imap: boolean; smtp: boolean; message: string; checkedAt: string } | null = null;
 const defaultUser = "demo-user";
 const demos = new DemoStore();
@@ -68,7 +72,7 @@ app.post<{ Params: { action: string }; Body: { sessionId?: string; email?: strin
 app.post<{ Body: MailboxConfig }>("/v1/accounts/test", async (request, reply) => {
   try {
     const config = mailboxSettings.resolve(request.body);
-    const candidate = new ImapSmtpMailboxAdapter(config);
+    const candidate = createMailbox(config);
     return await candidate.testConnection();
   } catch (error) {
     return reply.code(400).send({ imap: false, smtp: false, message: error instanceof Error ? error.message : String(error) });
@@ -77,7 +81,7 @@ app.post<{ Body: MailboxConfig }>("/v1/accounts/test", async (request, reply) =>
 app.post<{ Body: MailboxConfig }>("/v1/accounts/connect", async (request, reply) => {
   try {
     const config = mailboxSettings.resolve(request.body);
-    const candidate = new ImapSmtpMailboxAdapter(config);
+    const candidate = createMailbox(config);
     const result = await candidate.testConnection();
     lastTest = { ...result, checkedAt: new Date().toISOString() };
     if (!result.imap || !result.smtp) return reply.code(400).send(result);
