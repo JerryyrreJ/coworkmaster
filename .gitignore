@@ -10,3 +10,5 @@ output/
 *.sqlite
 *.sqlite-*
 .data/
+
+rust-backend/target/
